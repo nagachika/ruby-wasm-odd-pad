@@ -34,15 +34,24 @@ const overlay    = document.getElementById("start-overlay");
 // (requires user activation), so setupMIDI() also falls back to a fresh
 // request inside the Start-button click handler.
 let _midiAccessPromise = null;
-if (navigator.requestMIDIAccess) {
+window.__midiErr = null;  // captured early-request error, surfaced by setupMIDI()
+
+if (typeof navigator.requestMIDIAccess !== "function") {
+  window.__midiErr = {
+    name: "Unsupported",
+    message: `requestMIDIAccess is ${navigator.requestMIDIAccess === undefined ? "undefined" : "null"} (insecure context?)`
+  };
+} else {
   try {
     _midiAccessPromise = navigator.requestMIDIAccess();
     _midiAccessPromise.catch(e => {
       console.warn("[MIDI] Early access request failed; will retry on click:", e);
+      window.__midiErr = { name: e.name || "Error", message: e.message || String(e) };
       _midiAccessPromise = null;
     });
   } catch (e) {
     console.warn("[MIDI] Early access threw:", e);
+    window.__midiErr = { name: e.name || "Error", message: e.message || String(e) };
     _midiAccessPromise = null;
   }
 }
@@ -107,16 +116,28 @@ async function setupMIDI() {
   const selectEl = document.getElementById("midi-out-select");
   const statusEl = document.getElementById("midi-out-status");
 
-  if (!navigator.requestMIDIAccess) {
-    statusEl.textContent = "unsupported";
+  const showErr = (label, e) => {
+    const name = e?.name || "Error";
+    const msg  = e?.message || String(e);
+    statusEl.textContent = `${label}: ${name}: ${msg}`;
+    console.error(`[MIDI] ${label}:`, e);
+  };
+
+  if (typeof navigator.requestMIDIAccess !== "function") {
+    statusEl.textContent = window.__midiErr
+      ? `unsupported (${window.__midiErr.message})`
+      : "unsupported";
     return;
   }
 
   let access = null;
+  let lastErr = null;
 
   // 1) Try the early-request promise (works on desktop)
   if (_midiAccessPromise) {
-    try { access = await _midiAccessPromise; } catch { access = null; }
+    try { access = await _midiAccessPromise; } catch (e) { lastErr = e; access = null; }
+  } else if (window.__midiErr) {
+    lastErr = window.__midiErr;
   }
 
   // 2) Fallback: fresh request inside user gesture (required on Android Chrome)
@@ -125,8 +146,7 @@ async function setupMIDI() {
       console.log("[MIDI] Requesting access inside click handler (user gesture)…");
       access = await navigator.requestMIDIAccess();
     } catch (e) {
-      console.error("[MIDI] Access failed:", e);
-      statusEl.textContent = "denied";
+      showErr("Access failed", e || lastErr);
       return;
     }
   }
