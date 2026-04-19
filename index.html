@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Odd Pad – MIDI Controller</title>
+  <script type="importmap">
+  {
+    "imports": {
+      "@bjorn3/browser_wasi_shim": "https://cdn.jsdelivr.net/npm/@bjorn3/browser_wasi_shim@0.3.0/dist/index.js"
+    }
+  }
+  </script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: #1a1a1a;
+      color: #eee;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      display: flex;
+      flex-direction: column;
+      height: 100dvh;
+      overflow: hidden;
+    }
+
+    /* ── Start Overlay ─────────────────────────────────── */
+    #start-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.88);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      gap: 14px;
+    }
+
+    #start-overlay h1 { margin: 0; font-size: 1.6rem; letter-spacing: 0.05em; }
+
+    #start-btn {
+      padding: 14px 36px;
+      font-size: 1.2rem;
+      cursor: pointer;
+      border-radius: 8px;
+      border: none;
+      background: #0070f3;
+      color: #fff;
+      transition: opacity 0.2s;
+    }
+    #start-btn:disabled { opacity: 0.45; cursor: default; }
+
+    #loading-msg { font-size: 0.85rem; color: #888; }
+
+    /* ── Header ────────────────────────────────────────── */
+    header {
+      background: #242424;
+      padding: 8px 14px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+      border-bottom: 1px solid #383838;
+      flex-shrink: 0;
+    }
+
+    header h1 { margin: 0; font-size: 0.95rem; color: #aaa; letter-spacing: 0.08em; }
+
+    .ctrl-group {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 0.78rem;
+    }
+    .ctrl-group label { color: #888; }
+
+    select, input[type="range"] {
+      background: #333;
+      color: #eee;
+      border: 1px solid #555;
+      border-radius: 4px;
+      padding: 2px 4px;
+      font-size: 0.78rem;
+    }
+    input[type="range"] { width: 70px; }
+
+    #ctrl-octave-val { min-width: 2.2em; text-align: right; color: #bbb; font-size: 0.78rem; }
+
+    #midi-out-group { margin-left: auto; }
+    #midi-out-select { max-width: 140px; }
+    #midi-out-status { font-size: 0.75rem; color: #666; }
+
+    /* ── Grid Container ───────────────────────────────── */
+    #grid-container {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      min-height: 0;
+    }
+
+    pad-grid {
+      display: block;
+      width: min(100%, 520px);
+    }
+  </style>
+</head>
+<body>
+
+<div id="start-overlay">
+  <h1>Odd Pad</h1>
+  <button id="start-btn" disabled>Loading Ruby VM…</button>
+  <p id="loading-msg">Fetching ruby+stdlib.wasm (~30 MB)</p>
+</div>
+
+<header>
+  <h1>ODD PAD</h1>
+
+  <div class="ctrl-group">
+    <label for="ctrl-octave">Octave</label>
+    <input id="ctrl-octave" type="range" min="61" max="67" value="64" step="1">
+    <span id="ctrl-octave-val">±0</span>
+  </div>
+
+  <div class="ctrl-group">
+    <label for="ctrl-root">Root</label>
+    <select id="ctrl-root">
+      <option value="0">C</option>
+      <option value="1">C#</option>
+      <option value="2">D</option>
+      <option value="3">D#</option>
+      <option value="4">E</option>
+      <option value="5">F</option>
+      <option value="6">F#</option>
+      <option value="7">G</option>
+      <option value="8">G#</option>
+      <option value="9">A</option>
+      <option value="10">A#</option>
+      <option value="11">B</option>
+    </select>
+  </div>
+
+  <div class="ctrl-group">
+    <label for="ctrl-dim">Dim</label>
+    <select id="ctrl-dim">
+      <option value="3">3</option>
+      <option value="4">4</option>
+      <option value="5" selected>5</option>
+    </select>
+  </div>
+
+  <div class="ctrl-group">
+    <label for="ctrl-preset">Preset</label>
+    <select id="ctrl-preset">
+      <option value="0">0</option>
+      <option value="1">1</option>
+      <option value="2">2</option>
+      <option value="3">3</option>
+    </select>
+  </div>
+
+  <div class="ctrl-group">
+    <label for="ctrl-volume">Vol</label>
+    <input id="ctrl-volume" type="range" min="0" max="127" value="100" step="1">
+  </div>
+
+  <div class="ctrl-group midi-out-group" id="midi-out-group">
+    <label for="midi-out-select">MIDI Out</label>
+    <select id="midi-out-select"><option value="">– none –</option></select>
+    <span id="midi-out-status"></span>
+  </div>
+</header>
+
+<div id="grid-container">
+  <!-- <pad-grid> is injected by JS after ruby.wasm boots to avoid VM re-entrancy -->
+</div>
+
+<script type="module" src="src/js/main.js"></script>
+</body>
+</html>
