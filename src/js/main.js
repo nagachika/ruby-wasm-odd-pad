@@ -188,15 +188,6 @@ async function setupMIDI() {
 
 // ── Wire Header Controls → MIDI CC ────────────────────────────────────────────
 function wireControls() {
-  const octaveSlider = document.getElementById("ctrl-octave");
-  const octaveVal    = document.getElementById("ctrl-octave-val");
-  octaveSlider.addEventListener("input", () => {
-    const v = parseInt(octaveSlider.value);
-    const delta = v - 64;
-    octaveVal.textContent = delta > 0 ? `+${delta}` : delta === 0 ? "±0" : `${delta}`;
-    App.eval(`$midi_sender.send_cc(23, #{v})`.replace("#{v}", v));
-  });
-
   document.getElementById("ctrl-root").addEventListener("change", e => {
     App.eval(`$midi_sender.send_cc(22, ${e.target.value})`);
   });

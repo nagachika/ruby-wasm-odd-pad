@@ -12,6 +12,11 @@ class PadGrid
   CENTER_X  = 4
   CENTER_Y  = 4
 
+  PX_PER_OCTAVE = 40
+  MAX_OCTAVE    = 3
+  OCTAVE_CC     = 23
+  OCTAVE_CENTER = 64
+
   PAD_CSS = <<~CSS
     :host {
       display: block;
@@ -43,8 +48,8 @@ class PadGrid
       transition: background 0.05s;
     }
     .pad.root          { background: #1a5c3a; }
-    .pad.active        { background: #4dabf7; }
-    .pad.root.active   { background: #69db7c; }
+    .pad.active        { background: #4dabf7; color: #fff; font-size: clamp(0.7rem, 2.6vw, 1rem); }
+    .pad.root.active   { background: #69db7c; color: #fff; }
   CSS
 
   def connected_callback(js_element)
@@ -94,8 +99,10 @@ class PadGrid
     # Pass procs as positional arguments so JS gem converts them to JS functions.
     # Using &block form with call() passes as a block, not as the JS argument.
     on_down   = method(:on_pointerdown).to_proc
+    on_move   = method(:on_pointermove).to_proc
     on_up     = method(:on_pointerup).to_proc
     @grid.call(:addEventListener, "pointerdown",   on_down)
+    @grid.call(:addEventListener, "pointermove",   on_move)
     @grid.call(:addEventListener, "pointerup",     on_up)
     @grid.call(:addEventListener, "pointercancel", on_up)
   end
@@ -111,8 +118,28 @@ class PadGrid
     note     = note_val.to_i
     velocity = calc_velocity(event, target)
 
+    @drag_target  = target
+    @drag_note    = note
+    @drag_start_y = event[:clientY].to_f
+    @drag_offset  = 0
+
     target[:classList].call(:add, "active")
+    target[:textContent] = "±0"
+
     $midi_sender.note_on(note, velocity)
+    $midi_sender.send_cc(OCTAVE_CC, OCTAVE_CENTER)
+  end
+
+  def on_pointermove(event)
+    return if @drag_target.nil?
+
+    dy = @drag_start_y - event[:clientY].to_f
+    new_offset = (dy / PX_PER_OCTAVE).to_i.clamp(-MAX_OCTAVE, MAX_OCTAVE)
+    return if new_offset == @drag_offset
+
+    @drag_offset = new_offset
+    @drag_target[:textContent] = format_offset(new_offset)
+    $midi_sender.send_cc(OCTAVE_CC, OCTAVE_CENTER + new_offset)
   end
 
   def on_pointerup(event)
@@ -121,7 +148,17 @@ class PadGrid
     return if note_val.typeof == "undefined" || note_val.to_s.empty?
 
     target[:classList].call(:remove, "active")
+    target[:textContent] = note_val.to_s
     $midi_sender.note_off(note_val.to_i)
+
+    @drag_target  = nil
+    @drag_note    = nil
+    @drag_start_y = nil
+    @drag_offset  = 0
+  end
+
+  def format_offset(n)
+    n > 0 ? "+#{n}" : (n == 0 ? "±0" : n.to_s)
   end
 
   def calc_velocity(event, target)
