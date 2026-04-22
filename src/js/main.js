@@ -188,16 +188,8 @@ async function setupMIDI() {
 
 // ── Wire Header Controls → MIDI CC ────────────────────────────────────────────
 function wireControls() {
-  document.getElementById("ctrl-root").addEventListener("change", e => {
-    App.eval(`$midi_sender.send_cc(22, ${e.target.value})`);
-  });
-
   document.getElementById("ctrl-dim").addEventListener("change", e => {
     App.eval(`$midi_sender.send_cc(20, ${e.target.value})`);
-  });
-
-  document.getElementById("ctrl-preset").addEventListener("change", e => {
-    App.eval(`$midi_sender.send_cc(21, ${e.target.value})`);
   });
 
   document.getElementById("ctrl-volume").addEventListener("input", e => {
