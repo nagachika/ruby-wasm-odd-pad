@@ -7,6 +7,8 @@ class MidiSender
   CC       = 0xB0
   CHANNEL  = 0  # MIDI channel 1 (0-indexed)
 
+  attr_reader :active
+
   def initialize
     @active = Set.new
   end
