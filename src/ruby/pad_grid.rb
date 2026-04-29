@@ -162,7 +162,7 @@ class PadGrid
       target[:classList].call(:add, "active")
       target[:textContent] = "±0"
       $midi_sender.note_on(note, velocity)
-      $midi_sender.send_cc(OCTAVE_CC, OCTAVE_CENTER)
+      $midi_sender.send_cc(OCTAVE_CC, OCTAVE_CENTER) if @pointers.size == 1
       log_debug("touchstart", id, note)
     end
   end
@@ -224,7 +224,7 @@ class PadGrid
     target[:classList].call(:add, "active")
     target[:textContent] = "±0"
     $midi_sender.note_on(note, velocity)
-    $midi_sender.send_cc(OCTAVE_CC, OCTAVE_CENTER)
+    $midi_sender.send_cc(OCTAVE_CC, OCTAVE_CENTER) if @pointers.size == 1
     log_debug("mousedown", pointer_id, note)
   end
 
@@ -253,26 +253,24 @@ class PadGrid
   end
 
   def on_pointercancel(event)
-    return unless event[:pointerType].to_s == "mouse"
-    pointer_id = event[:pointerId].to_i
-    log_debug("pointercancel-raw(mouse)", pointer_id)
-    state = @pointers.delete(pointer_id)
-    return unless state
-    release_pad(state)
-    log_debug("pointercancel(mouse)", pointer_id, state[:note])
+    cleanup_mouse_pointer(event, "pointercancel")
   end
 
   def on_lostpointercapture(event)
-    return unless event[:pointerType].to_s == "mouse"
-    pointer_id = event[:pointerId].to_i
-    log_debug("lostpointercapture-raw(mouse)", pointer_id)
-    state = @pointers.delete(pointer_id)
-    return unless state
-    release_pad(state)
-    log_debug("lostpointercapture(mouse)", pointer_id, state[:note])
+    cleanup_mouse_pointer(event, "lostpointercapture")
   end
 
   # ── Shared helpers ─────────────────────────────────────────────────────────
+
+  def cleanup_mouse_pointer(event, label)
+    return unless event[:pointerType].to_s == "mouse"
+    pointer_id = event[:pointerId].to_i
+    log_debug("#{label}-raw(mouse)", pointer_id)
+    state = @pointers.delete(pointer_id)
+    return unless state
+    release_pad(state)
+    log_debug("#{label}(mouse)", pointer_id, state[:note])
+  end
 
   def each_changed_touch(event)
     changed = event[:changedTouches]

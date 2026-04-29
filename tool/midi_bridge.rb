@@ -76,7 +76,7 @@ def local_ip_hint
   require "socket"
   addrs = Socket.ip_address_list.select { |a| a.ipv4? && !a.ipv4_loopback? }
   addrs.map { |a| "  wss://#{a.ip_address}:#{BRIDGE_PORT}" }.join("\n")
-rescue
+rescue StandardError
   ""
 end
 

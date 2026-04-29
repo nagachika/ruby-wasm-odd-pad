@@ -4,6 +4,7 @@ const WASM_URL        = "https://cdn.jsdelivr.net/npm/@ruby/3.3-wasm-wasi@2.8.1/
 const BRIDGE_OPT_VAL   = "__bridge__";
 const BRIDGE_HOST_KEY  = "odd-pad.bridge-hostport";
 const BRIDGE_RETRY_MS  = 3000;
+const DEBUG            = new URLSearchParams(location.search).has("debug");
 
 function hostPortToWss(hostPort) {
   return hostPort ? `wss://${hostPort}` : "";
@@ -79,7 +80,7 @@ window.App = {
   },
 
   sendMidi(status, data1, data2) {
-    console.log(`[MIDI] 0x${status.toString(16).toUpperCase()} ${data1} ${data2}`);
+    if (DEBUG) console.log(`[MIDI] 0x${status.toString(16).toUpperCase()} ${data1} ${data2}`);
     if (this._useBridge) {
       sendViaBridge(status, data1, data2);
     } else if (this.midiOutput) {
@@ -198,10 +199,17 @@ async function writeRubyFiles() {
     "src/ruby/main.rb",
   ];
 
-  for (const file of files) {
-    const res = await fetch(`${file}?_=${Date.now()}`);
-    if (!res.ok) { console.error(`Failed to fetch ${file}`); continue; }
-    const text = await res.text();
+  const bust = Date.now();
+  const fetched = await Promise.all(
+    files.map(async file => {
+      const res = await fetch(`${file}?_=${bust}`);
+      if (!res.ok) { console.error(`Failed to fetch ${file}`); return { file, text: null }; }
+      return { file, text: await res.text() };
+    })
+  );
+
+  for (const { file, text } of fetched) {
+    if (text === null) continue;
 
     window._rubyFileContent = text;
     const vfsPath = `/${file}`;
@@ -337,12 +345,6 @@ function wireControls() {
 // ── Boot Sequence ─────────────────────────────────────────────────────────────
 
 startBtn.addEventListener("click", async () => {
-  if (navigator.requestMIDIAccess) {
-    const freshReq = navigator.requestMIDIAccess();
-    freshReq.catch(e => console.warn("[MIDI] fresh request rejected:", e));
-    _midiAccessPromise = freshReq;
-  }
-
   startBtn.disabled    = true;
   startBtn.textContent = "Initializing…";
 
@@ -355,12 +357,14 @@ startBtn.addEventListener("click", async () => {
   document.getElementById("grid-container").appendChild(padGrid);
 
   wireControls();
-  wireKebabMenu();
   document.addEventListener("contextmenu", e => e.preventDefault());
   overlay.style.display = "none";
 
   console.log("Odd Pad ready.");
 });
+
+// Wire kebab menu immediately so bridge URL can be configured before Start
+wireKebabMenu();
 
 // Start loading WASM immediately
 loadRubyVM();
