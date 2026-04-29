@@ -65,4 +65,9 @@ task :https do
   server.start
 end
 
+desc "Start WebSocket MIDI bridge (wss://<host>:8765 → IAC Driver)"
+task :bridge do
+  Dir.chdir(File.join(__dir__, "tool")) { sh "bundle exec ruby midi_bridge.rb #{ENV['PORT_INDEX'] || ''}" }
+end
+
 task default: :server

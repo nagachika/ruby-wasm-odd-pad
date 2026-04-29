@@ -1,11 +1,72 @@
 import { DefaultRubyVM } from "https://cdn.jsdelivr.net/npm/@ruby/wasm-wasi@2.8.1/dist/esm/browser.js";
 
-const WASM_URL = "https://cdn.jsdelivr.net/npm/@ruby/3.3-wasm-wasi@2.8.1/dist/ruby+stdlib.wasm";
+const WASM_URL        = "https://cdn.jsdelivr.net/npm/@ruby/3.3-wasm-wasi@2.8.1/dist/ruby+stdlib.wasm";
+const BRIDGE_OPT_VAL   = "__bridge__";
+const BRIDGE_HOST_KEY  = "odd-pad.bridge-hostport";
+const BRIDGE_RETRY_MS  = 3000;
+
+function hostPortToWss(hostPort) {
+  return hostPort ? `wss://${hostPort}` : "";
+}
+
+// ── WebSocket Bridge ──────────────────────────────────────────────────────────
+
+let bridgeWs        = null;
+let bridgeConnected = false;
+let bridgeRetryTimer = null;
+
+function connectBridge(url) {
+  clearTimeout(bridgeRetryTimer);
+  if (bridgeWs) { bridgeWs.onclose = null; bridgeWs.close(); bridgeWs = null; }
+  if (!url) { bridgeConnected = false; refreshBridgeOption(); return; }
+
+  console.log("[Bridge] Connecting to", url);
+  try {
+    bridgeWs = new WebSocket(url);
+  } catch (e) {
+    console.warn("[Bridge] Invalid URL:", e.message);
+    bridgeConnected = false;
+    refreshBridgeOption();
+    return;
+  }
+
+  bridgeWs.onopen = () => {
+    console.log("[Bridge] Connected:", url);
+    bridgeConnected = true;
+    refreshBridgeOption();
+  };
+
+  bridgeWs.onclose = () => {
+    console.log("[Bridge] Disconnected, retrying in", BRIDGE_RETRY_MS, "ms");
+    bridgeWs = null;
+    bridgeConnected = false;
+    refreshBridgeOption();
+    const savedHostPort = localStorage.getItem(BRIDGE_HOST_KEY) ?? "";
+    if (hostPortToWss(savedHostPort) === url) {
+      bridgeRetryTimer = setTimeout(() => connectBridge(url), BRIDGE_RETRY_MS);
+    }
+  };
+
+  bridgeWs.onerror = e => console.warn("[Bridge] Error:", e);
+}
+
+function sendViaBridge(status, data1, data2) {
+  if (!bridgeWs || bridgeWs.readyState !== WebSocket.OPEN) {
+    console.warn("[Bridge] sendMidi: not connected");
+    return;
+  }
+  bridgeWs.send(JSON.stringify([status, data1, data2]));
+}
+
+// Updated by setupMIDI once the dropdown exists
+let refreshBridgeOption = () => {};
 
 // ── Central App Object ────────────────────────────────────────────────────────
+
 window.App = {
-  vm: null,
+  vm:         null,
   midiOutput: null,
+  _useBridge: false,
 
   eval(code, ctx = "Main") {
     try {
@@ -18,23 +79,80 @@ window.App = {
   },
 
   sendMidi(status, data1, data2) {
-    console.log(`[MIDI] status=0x${status.toString(16)} d1=${data1} d2=${data2} output=${this.midiOutput?.name ?? "null"}`);
-    if (!this.midiOutput) { console.warn("[MIDI] No output port selected"); return; }
-    this.midiOutput.send([status, data1, data2]);
+    console.log(`[MIDI] 0x${status.toString(16).toUpperCase()} ${data1} ${data2}`);
+    if (this._useBridge) {
+      sendViaBridge(status, data1, data2);
+    } else if (this.midiOutput) {
+      this.midiOutput.send([status, data1, data2]);
+    } else {
+      console.warn("[MIDI] No output selected");
+    }
   }
 };
 
 // ── UI Elements ───────────────────────────────────────────────────────────────
+
 const startBtn   = document.getElementById("start-btn");
 const loadingMsg = document.getElementById("loading-msg");
 const overlay    = document.getElementById("start-overlay");
 
-// ── MIDI Access (early request — desktop browsers often allow without gesture) ──
-// On Android Chrome, this early request may not trigger a permission dialog
-// (requires user activation), so setupMIDI() also falls back to a fresh
-// request inside the Start-button click handler.
+// ── Bridge: connect on load with saved host:port ──────────────────────────────
+
+{
+  const savedHostPort = localStorage.getItem(BRIDGE_HOST_KEY) ?? "";
+  if (savedHostPort) connectBridge(hostPortToWss(savedHostPort));
+}
+
+// ── Kebab menu + Bridge dialog ────────────────────────────────────────────────
+
+function wireKebabMenu() {
+  const kebabBtn  = document.getElementById("kebab-btn");
+  const dropdown  = document.getElementById("kebab-dropdown");
+  const dialog    = document.getElementById("bridge-dialog");
+  const input     = document.getElementById("bridge-hostport");
+  const hint      = document.getElementById("bridge-status-hint");
+  const cancelBtn = document.getElementById("bridge-cancel");
+  const okBtn     = document.getElementById("bridge-ok");
+
+  // Toggle dropdown
+  kebabBtn.addEventListener("click", e => {
+    e.stopPropagation();
+    dropdown.hidden = !dropdown.hidden;
+  });
+  document.addEventListener("click", () => { dropdown.hidden = true; });
+
+  // Open dialog
+  document.getElementById("menu-bridge").addEventListener("click", () => {
+    dropdown.hidden = true;
+    input.value = localStorage.getItem(BRIDGE_HOST_KEY) ?? "";
+    hint.textContent = bridgeConnected ? "現在: 接続中" : (input.value ? "現在: 未接続" : "");
+    hint.className   = "status-hint" + (bridgeConnected ? " ok" : (input.value ? " err" : ""));
+    dialog.showModal();
+    // Defer focus so showModal animation doesn't fight with keyboard
+    setTimeout(() => input.focus(), 50);
+  });
+
+  // Cancel
+  cancelBtn.addEventListener("click", () => dialog.close());
+
+  // OK — save and reconnect
+  okBtn.addEventListener("click", () => {
+    const hostPort = input.value.trim();
+    localStorage.setItem(BRIDGE_HOST_KEY, hostPort);
+    connectBridge(hostPortToWss(hostPort));
+    dialog.close();
+  });
+
+  // Also allow Enter in the input to confirm
+  input.addEventListener("keydown", e => {
+    if (e.key === "Enter") okBtn.click();
+  });
+}
+
+// ── MIDI Access (early request) ───────────────────────────────────────────────
+
 let _midiAccessPromise = null;
-window.__midiErr = null;  // captured early-request error, surfaced by setupMIDI()
+window.__midiErr = null;
 
 if (typeof navigator.requestMIDIAccess !== "function") {
   window.__midiErr = {
@@ -56,7 +174,8 @@ if (typeof navigator.requestMIDIAccess !== "function") {
   }
 }
 
-// ── Load WASM (start immediately, before button click) ────────────────────────
+// ── Load WASM ─────────────────────────────────────────────────────────────────
+
 async function loadRubyVM() {
   const response = await fetch(WASM_URL);
   const buffer   = await response.arrayBuffer();
@@ -64,13 +183,13 @@ async function loadRubyVM() {
   const { vm }   = await DefaultRubyVM(module);
   App.vm = vm;
   App.eval("require 'js'");
-  startBtn.disabled    = false;
-  startBtn.textContent = "Start";
+  startBtn.disabled      = false;
+  startBtn.textContent   = "Start";
   loadingMsg.textContent = "Ready — click to begin";
 }
 
-// ── Write Ruby source files into the WASM VFS ─────────────────────────────────
-// Pattern copied verbatim from ruby-wasm-purified-synth/src/js/main.js
+// ── Write Ruby source files into WASM VFS ────────────────────────────────────
+
 async function writeRubyFiles() {
   const files = [
     "src/ruby/web_component.rb",
@@ -112,14 +231,27 @@ async function writeRubyFiles() {
 }
 
 // ── MIDI Setup ────────────────────────────────────────────────────────────────
+
 async function setupMIDI() {
   const selectEl = document.getElementById("midi-out-select");
   const statusEl = document.getElementById("midi-out-status");
 
+  // Inject "Wi-Fi Bridge" as the first option and wire refreshBridgeOption
+  const bridgeOpt = document.createElement("option");
+  bridgeOpt.value = BRIDGE_OPT_VAL;
+  selectEl.appendChild(bridgeOpt);
+
+  refreshBridgeOption = () => {
+    bridgeOpt.textContent = bridgeConnected ? "Wi-Fi Bridge ✓" : "Wi-Fi Bridge (disconnected)";
+    if (selectEl.value === BRIDGE_OPT_VAL) {
+      statusEl.textContent = bridgeConnected ? "connected" : "disconnected";
+    }
+  };
+  refreshBridgeOption();
+
   const showErr = (label, e) => {
-    const name = e?.name || "Error";
-    const msg  = e?.message || String(e);
-    statusEl.textContent = `${label}: ${name}: ${msg}`;
+    const msg = e?.message || String(e);
+    statusEl.textContent = `${label}: ${msg}`;
     console.error(`[MIDI] ${label}:`, e);
   };
 
@@ -133,14 +265,12 @@ async function setupMIDI() {
   let access = null;
   let lastErr = null;
 
-  // 1) Try the early-request promise (works on desktop)
   if (_midiAccessPromise) {
     try { access = await _midiAccessPromise; } catch (e) { lastErr = e; access = null; }
   } else if (window.__midiErr) {
     lastErr = window.__midiErr;
   }
 
-  // 2) Fallback: fresh request inside user gesture (required on Android Chrome)
   if (!access) {
     try {
       console.log("[MIDI] Requesting access inside click handler (user gesture)…");
@@ -150,22 +280,22 @@ async function setupMIDI() {
       return;
     }
   }
-  console.log("[MIDI] Access granted, inputs:", access.inputs.size, "outputs:", access.outputs.size);
+  console.log("[MIDI] Access granted, outputs:", access.outputs.size);
 
   function refreshOutputs() {
     const outputs = [...access.outputs.values()];
-    console.log("[MIDI] outputs found:", outputs.length, outputs.map(o => `${o.name}(${o.id})`));
+    const prevId  = selectEl.value;
 
-    // Rebuild <select> options
-    const prevId = selectEl.value;
+    // Rebuild keeping bridge option at top
     selectEl.innerHTML = '<option value="">– none –</option>';
+    selectEl.appendChild(bridgeOpt);
     outputs.forEach(o => {
       const opt = document.createElement("option");
-      opt.value = o.id;
+      opt.value       = o.id;
       opt.textContent = o.name;
       selectEl.appendChild(opt);
     });
-    // Restore previous selection, or auto-select first port
+
     if (prevId && [...selectEl.options].some(o => o.value === prevId)) {
       selectEl.value = prevId;
     } else if (outputs.length > 0) {
@@ -176,9 +306,15 @@ async function setupMIDI() {
 
   function updateOutput() {
     const id = selectEl.value;
-    App.midiOutput = id ? access.outputs.get(id) ?? null : null;
-    console.log("[MIDI] midiOutput set to:", App.midiOutput?.name ?? "null");
-    statusEl.textContent = App.midiOutput ? App.midiOutput.name : "(no port)";
+    if (id === BRIDGE_OPT_VAL) {
+      App._useBridge  = true;
+      App.midiOutput  = null;
+      statusEl.textContent = bridgeConnected ? "connected" : "disconnected";
+    } else {
+      App._useBridge  = false;
+      App.midiOutput  = id ? access.outputs.get(id) ?? null : null;
+      statusEl.textContent = App.midiOutput ? App.midiOutput.name : "(no port)";
+    }
   }
 
   selectEl.addEventListener("change", updateOutput);
@@ -187,6 +323,7 @@ async function setupMIDI() {
 }
 
 // ── Wire Header Controls → MIDI CC ────────────────────────────────────────────
+
 function wireControls() {
   document.getElementById("ctrl-dim").addEventListener("change", e => {
     App.eval(`$midi_sender.send_cc(20, ${e.target.value})`);
@@ -198,11 +335,8 @@ function wireControls() {
 }
 
 // ── Boot Sequence ─────────────────────────────────────────────────────────────
+
 startBtn.addEventListener("click", async () => {
-  // CRITICAL: request MIDI access SYNCHRONOUSLY at the top of the click handler.
-  // On Android Chrome, user activation is consumed by the first await, so
-  // requestMIDIAccess() must be invoked before any await to be recognised as
-  // a user-gesture call.  We store the promise and consume it inside setupMIDI.
   if (navigator.requestMIDIAccess) {
     const freshReq = navigator.requestMIDIAccess();
     freshReq.catch(e => console.warn("[MIDI] fresh request rejected:", e));
@@ -215,17 +349,13 @@ startBtn.addEventListener("click", async () => {
   await setupMIDI();
   await writeRubyFiles();
 
-  // Boot Ruby side — PadGrid.register("pad-grid") is called inside main.rb
-  // but no <pad-grid> element is in the DOM yet, so connectedCallback won't fire
-  // (avoids Ruby VM re-entrancy)
   App.eval("require 'main'");
 
-  // Now that the custom element is defined, add it to the DOM.
-  // connectedCallback fires here, safely outside any App.eval() call.
   const padGrid = document.createElement("pad-grid");
   document.getElementById("grid-container").appendChild(padGrid);
 
   wireControls();
+  wireKebabMenu();
   document.addEventListener("contextmenu", e => e.preventDefault());
   overlay.style.display = "none";
 

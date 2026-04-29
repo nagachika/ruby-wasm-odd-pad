@@ -94,6 +94,130 @@
     #midi-out-select { max-width: 140px; }
     #midi-out-status { font-size: 0.75rem; color: #666; }
 
+    /* ── Kebab menu ────────────────────────────────────── */
+    #kebab-wrap {
+      position: relative;
+    }
+
+    #kebab-btn {
+      background: none;
+      border: none;
+      color: #888;
+      font-size: 1.3rem;
+      line-height: 1;
+      padding: 4px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      touch-action: auto;
+    }
+    #kebab-btn:hover { background: #333; color: #eee; }
+
+    #kebab-dropdown {
+      position: absolute;
+      right: 0;
+      top: calc(100% + 4px);
+      background: #2a2a2a;
+      border: 1px solid #444;
+      border-radius: 6px;
+      min-width: 170px;
+      z-index: 50;
+      padding: 4px 0;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    }
+    #kebab-dropdown[hidden] { display: none; }
+
+    .kebab-item {
+      display: block;
+      width: 100%;
+      background: none;
+      border: none;
+      color: #ddd;
+      text-align: left;
+      padding: 10px 16px;
+      cursor: pointer;
+      font-size: 0.85rem;
+      touch-action: auto;
+    }
+    .kebab-item:hover { background: #383838; color: #fff; }
+
+    /* ── Bridge dialog ─────────────────────────────────── */
+    #bridge-dialog {
+      background: #242424;
+      color: #eee;
+      border: 1px solid #555;
+      border-radius: 10px;
+      padding: 24px 20px 16px;
+      min-width: 300px;
+      touch-action: auto;
+    }
+    #bridge-dialog::backdrop {
+      background: rgba(0, 0, 0, 0.65);
+    }
+
+    #bridge-dialog h2 {
+      margin: 0 0 16px;
+      font-size: 1rem;
+      font-weight: 600;
+    }
+
+    #bridge-dialog .prefix {
+      font-size: 0.85rem;
+      color: #888;
+      margin-bottom: 6px;
+    }
+
+    #bridge-dialog .input-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 6px;
+    }
+
+    #bridge-dialog .input-prefix {
+      font-size: 0.82rem;
+      color: #888;
+      white-space: nowrap;
+    }
+
+    #bridge-hostport {
+      flex: 1;
+      background: #333;
+      color: #eee;
+      border: 1px solid #555;
+      border-radius: 4px;
+      padding: 6px 8px;
+      font-size: 0.85rem;
+      user-select: text;
+      -webkit-user-select: text;
+      touch-action: auto;
+    }
+
+    #bridge-dialog .status-hint {
+      font-size: 0.75rem;
+      color: #666;
+      margin-bottom: 18px;
+      min-height: 1em;
+    }
+    #bridge-dialog .status-hint.ok  { color: #69db7c; }
+    #bridge-dialog .status-hint.err { color: #f44; }
+
+    #bridge-dialog .dialog-btns {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    #bridge-dialog button {
+      padding: 7px 18px;
+      border-radius: 6px;
+      border: 1px solid #555;
+      font-size: 0.85rem;
+      cursor: pointer;
+      touch-action: auto;
+    }
+    #bridge-dialog .btn-cancel { background: #333; color: #ccc; }
+    #bridge-dialog .btn-ok     { background: #0070f3; color: #fff; border-color: #0070f3; }
+
     /* ── Grid Container ───────────────────────────────── */
     #grid-container {
       flex: 1;
@@ -136,12 +260,33 @@
     <input id="ctrl-volume" type="range" min="0" max="127" value="100" step="1">
   </div>
 
-  <div class="ctrl-group midi-out-group" id="midi-out-group">
+  <div class="ctrl-group" id="midi-out-group">
     <label for="midi-out-select">MIDI Out</label>
     <select id="midi-out-select"><option value="">– none –</option></select>
     <span id="midi-out-status"></span>
   </div>
+
+  <div id="kebab-wrap">
+    <button id="kebab-btn" aria-label="設定メニュー">⋮</button>
+    <div id="kebab-dropdown" hidden>
+      <button class="kebab-item" id="menu-bridge">Bridge URL を設定…</button>
+    </div>
+  </div>
 </header>
+
+<!-- Bridge URL dialog -->
+<dialog id="bridge-dialog">
+  <h2>Bridge URL</h2>
+  <div class="input-row">
+    <span class="input-prefix">wss://</span>
+    <input id="bridge-hostport" type="text" placeholder="host:8765" autocomplete="off" spellcheck="false">
+  </div>
+  <p class="status-hint" id="bridge-status-hint"></p>
+  <div class="dialog-btns">
+    <button class="btn-cancel" id="bridge-cancel">キャンセル</button>
+    <button class="btn-ok"     id="bridge-ok">OK</button>
+  </div>
+</dialog>
 
 <div id="grid-container">
   <!-- <pad-grid> is injected by JS after ruby.wasm boots to avoid VM re-entrancy -->
