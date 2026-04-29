@@ -88,7 +88,14 @@ window.App = {
     } else {
       console.warn("[MIDI] No output selected");
     }
-  }
+  },
+
+  bridgeIsConnected() { return bridgeConnected; },
+  bridgeHostPort()    { return localStorage.getItem(BRIDGE_HOST_KEY) ?? ""; },
+  applyBridge(hostPort) {
+    localStorage.setItem(BRIDGE_HOST_KEY, hostPort);
+    connectBridge(hostPortToWss(hostPort));
+  },
 };
 
 // ── UI Elements ───────────────────────────────────────────────────────────────
@@ -102,52 +109,6 @@ const overlay    = document.getElementById("start-overlay");
 {
   const savedHostPort = localStorage.getItem(BRIDGE_HOST_KEY) ?? "";
   if (savedHostPort) connectBridge(hostPortToWss(savedHostPort));
-}
-
-// ── Kebab menu + Bridge dialog ────────────────────────────────────────────────
-
-function wireKebabMenu() {
-  const kebabBtn  = document.getElementById("kebab-btn");
-  const dropdown  = document.getElementById("kebab-dropdown");
-  const dialog    = document.getElementById("bridge-dialog");
-  const input     = document.getElementById("bridge-hostport");
-  const hint      = document.getElementById("bridge-status-hint");
-  const cancelBtn = document.getElementById("bridge-cancel");
-  const okBtn     = document.getElementById("bridge-ok");
-
-  // Toggle dropdown
-  kebabBtn.addEventListener("click", e => {
-    e.stopPropagation();
-    dropdown.hidden = !dropdown.hidden;
-  });
-  document.addEventListener("click", () => { dropdown.hidden = true; });
-
-  // Open dialog
-  document.getElementById("menu-bridge").addEventListener("click", () => {
-    dropdown.hidden = true;
-    input.value = localStorage.getItem(BRIDGE_HOST_KEY) ?? "";
-    hint.textContent = bridgeConnected ? "現在: 接続中" : (input.value ? "現在: 未接続" : "");
-    hint.className   = "status-hint" + (bridgeConnected ? " ok" : (input.value ? " err" : ""));
-    dialog.showModal();
-    // Defer focus so showModal animation doesn't fight with keyboard
-    setTimeout(() => input.focus(), 50);
-  });
-
-  // Cancel
-  cancelBtn.addEventListener("click", () => dialog.close());
-
-  // OK — save and reconnect
-  okBtn.addEventListener("click", () => {
-    const hostPort = input.value.trim();
-    localStorage.setItem(BRIDGE_HOST_KEY, hostPort);
-    connectBridge(hostPortToWss(hostPort));
-    dialog.close();
-  });
-
-  // Also allow Enter in the input to confirm
-  input.addEventListener("keydown", e => {
-    if (e.key === "Enter") okBtn.click();
-  });
 }
 
 // ── MIDI Access (early request) ───────────────────────────────────────────────
@@ -197,6 +158,8 @@ async function writeRubyFiles() {
     "src/ruby/midi_sender.rb",
     "src/ruby/pad_grid.rb",
     "src/ruby/main.rb",
+    "src/ruby/ctrl_group.rb",
+    "src/ruby/kebab_menu.rb",
   ];
 
   const bust = Date.now();
@@ -330,18 +293,6 @@ async function setupMIDI() {
   refreshOutputs();
 }
 
-// ── Wire Header Controls → MIDI CC ────────────────────────────────────────────
-
-function wireControls() {
-  document.getElementById("ctrl-dim").addEventListener("change", e => {
-    App.eval(`$midi_sender.send_cc(20, ${e.target.value})`);
-  });
-
-  document.getElementById("ctrl-volume").addEventListener("input", e => {
-    App.eval(`$midi_sender.send_cc(7, ${e.target.value})`);
-  });
-}
-
 // ── Boot Sequence ─────────────────────────────────────────────────────────────
 
 startBtn.addEventListener("click", async () => {
@@ -353,18 +304,18 @@ startBtn.addEventListener("click", async () => {
 
   App.eval("require 'main'");
 
+  const midiOutGroup = document.getElementById("midi-out-group");
+  midiOutGroup.before(document.createElement("dim-ctrl"), document.createElement("vol-ctrl"));
+
+  document.querySelector("header").appendChild(document.createElement("kebab-menu"));
+
   const padGrid = document.createElement("pad-grid");
   document.getElementById("grid-container").appendChild(padGrid);
-
-  wireControls();
   document.addEventListener("contextmenu", e => e.preventDefault());
   overlay.style.display = "none";
 
   console.log("Odd Pad ready.");
 });
-
-// Wire kebab menu immediately so bridge URL can be configured before Start
-wireKebabMenu();
 
 // Start loading WASM immediately
 loadRubyVM();
