@@ -209,19 +209,27 @@ function wirePanic() {
   });
   window.addEventListener("blur", allNotesOff);
 
+  // Prevent context menu globally (long-press on Android shows download/share menu)
+  document.addEventListener("contextmenu", e => e.preventDefault());
+
   // Long-press (500ms) on the "ODD PAD" title as an emergency panic button
   const title = document.querySelector("header h1");
   if (!title) return;
   let panicTimer = null;
-  title.addEventListener("pointerdown", () => {
+  const startPanic = () => {
     panicTimer = setTimeout(() => {
       allNotesOff();
       title.textContent = "ALL OFF";
       setTimeout(() => { title.textContent = "ODD PAD"; }, 600);
     }, 500);
-  });
-  title.addEventListener("pointerup",     () => clearTimeout(panicTimer));
-  title.addEventListener("pointercancel", () => clearTimeout(panicTimer));
+  };
+  const cancelPanic = () => clearTimeout(panicTimer);
+  title.addEventListener("pointerdown",   startPanic);
+  title.addEventListener("pointerup",     cancelPanic);
+  title.addEventListener("pointercancel", cancelPanic);
+  title.addEventListener("touchstart",    startPanic, { passive: true });
+  title.addEventListener("touchend",      cancelPanic);
+  title.addEventListener("touchcancel",   cancelPanic);
 }
 
 // ── Boot Sequence ─────────────────────────────────────────────────────────────

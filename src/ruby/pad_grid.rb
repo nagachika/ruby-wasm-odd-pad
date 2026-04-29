@@ -117,20 +117,99 @@ class PadGrid
   end
 
   def attach_events
-    on_down   = method(:on_pointerdown).to_proc
-    on_move   = method(:on_pointermove).to_proc
-    on_up     = method(:on_pointerup).to_proc
-    on_cancel = method(:on_pointercancel).to_proc
-    on_lost   = method(:on_lostpointercapture).to_proc
-    @grid.call(:addEventListener, "pointerdown",        on_down)
-    @grid.call(:addEventListener, "pointermove",         on_move)
-    @grid.call(:addEventListener, "pointerup",           on_up)
-    @grid.call(:addEventListener, "pointercancel",       on_cancel)
+    # Touch Events: primary handler for finger input on Android.
+    # preventDefault() in touchstart stops the browser from also firing Pointer Events
+    # for touch contacts, avoiding the OS-level gesture cancellation that plagues
+    # Pointer Events on 3+ simultaneous touches.
+    opts = JS.eval("return { passive: false }")
+    on_tstart  = method(:on_touchstart).to_proc
+    on_tmove   = method(:on_touchmove).to_proc
+    on_tend    = method(:on_touchend).to_proc
+    on_tcancel = method(:on_touchcancel).to_proc
+    @grid.call(:addEventListener, "touchstart",  on_tstart,  opts)
+    @grid.call(:addEventListener, "touchmove",   on_tmove,   opts)
+    @grid.call(:addEventListener, "touchend",    on_tend)
+    @grid.call(:addEventListener, "touchcancel", on_tcancel)
+
+    # Pointer Events: mouse-only fallback for desktop testing.
+    # Guards in each handler skip non-mouse pointers.
+    on_pdown   = method(:on_pointerdown).to_proc
+    on_pmove   = method(:on_pointermove).to_proc
+    on_pup     = method(:on_pointerup).to_proc
+    on_pcancel = method(:on_pointercancel).to_proc
+    on_lost    = method(:on_lostpointercapture).to_proc
+    @grid.call(:addEventListener, "pointerdown",        on_pdown)
+    @grid.call(:addEventListener, "pointermove",         on_pmove)
+    @grid.call(:addEventListener, "pointerup",           on_pup)
+    @grid.call(:addEventListener, "pointercancel",       on_pcancel)
     @grid.call(:addEventListener, "lostpointercapture",  on_lost)
   end
 
+  # ── Touch Event handlers ───────────────────────────────────────────────────
+
+  def on_touchstart(event)
+    event.call(:preventDefault)
+    each_changed_touch(event) do |touch|
+      target   = touch[:target]
+      note_val = target[:dataset][:note]
+      next if note_val.typeof == "undefined" || note_val.to_s.empty?
+
+      id       = touch[:identifier].to_i
+      note     = note_val.to_i
+      velocity = calc_touch_velocity(touch, target)
+
+      @pointers[id] = { target: target, note: note, start_y: touch[:clientY].to_f, offset: 0 }
+      target[:classList].call(:add, "active")
+      target[:textContent] = "±0"
+      $midi_sender.note_on(note, velocity)
+      $midi_sender.send_cc(OCTAVE_CC, OCTAVE_CENTER)
+      log_debug("touchstart", id, note)
+    end
+  end
+
+  def on_touchmove(event)
+    event.call(:preventDefault)
+    each_changed_touch(event) do |touch|
+      id    = touch[:identifier].to_i
+      state = @pointers[id]
+      next unless state
+
+      dy         = state[:start_y] - touch[:clientY].to_f
+      new_offset = (dy / PX_PER_OCTAVE).to_i.clamp(-MAX_OCTAVE, MAX_OCTAVE)
+      next if new_offset == state[:offset]
+
+      state[:offset] = new_offset
+      state[:target][:textContent] = format_offset(new_offset)
+      $midi_sender.send_cc(OCTAVE_CC, OCTAVE_CENTER + new_offset)
+    end
+  end
+
+  def on_touchend(event)
+    each_changed_touch(event) do |touch|
+      id    = touch[:identifier].to_i
+      state = @pointers.delete(id)
+      next unless state
+      release_pad(state)
+      log_debug("touchend", id, state[:note])
+    end
+  end
+
+  def on_touchcancel(event)
+    each_changed_touch(event) do |touch|
+      id = touch[:identifier].to_i
+      log_debug("touchcancel-raw", id)
+      state = @pointers.delete(id)
+      next unless state
+      release_pad(state)
+      log_debug("touchcancel", id, state[:note])
+    end
+  end
+
+  # ── Pointer Event handlers (mouse only) ───────────────────────────────────
+
   def on_pointerdown(event)
-    target = event[:target]
+    return unless event[:pointerType].to_s == "mouse"
+    target   = event[:target]
     note_val = target[:dataset][:note]
     return if note_val.typeof == "undefined" || note_val.to_s.empty?
 
@@ -141,27 +220,21 @@ class PadGrid
     note     = note_val.to_i
     velocity = calc_velocity(event, target)
 
-    @pointers[pointer_id] = {
-      target:  target,
-      note:    note,
-      start_y: event[:clientY].to_f,
-      offset:  0
-    }
-
+    @pointers[pointer_id] = { target: target, note: note, start_y: event[:clientY].to_f, offset: 0 }
     target[:classList].call(:add, "active")
     target[:textContent] = "±0"
-
     $midi_sender.note_on(note, velocity)
     $midi_sender.send_cc(OCTAVE_CC, OCTAVE_CENTER)
-    log_debug("pointerdown", pointer_id, note)
+    log_debug("mousedown", pointer_id, note)
   end
 
   def on_pointermove(event)
+    return unless event[:pointerType].to_s == "mouse"
     pointer_id = event[:pointerId].to_i
-    state = @pointers[pointer_id]
+    state      = @pointers[pointer_id]
     return unless state
 
-    dy = state[:start_y] - event[:clientY].to_f
+    dy         = state[:start_y] - event[:clientY].to_f
     new_offset = (dy / PX_PER_OCTAVE).to_i.clamp(-MAX_OCTAVE, MAX_OCTAVE)
     return if new_offset == state[:offset]
 
@@ -171,32 +244,39 @@ class PadGrid
   end
 
   def on_pointerup(event)
+    return unless event[:pointerType].to_s == "mouse"
     pointer_id = event[:pointerId].to_i
-    state = @pointers.delete(pointer_id)
+    state      = @pointers.delete(pointer_id)
     return unless state
-
     release_pad(state)
-    log_debug("pointerup", pointer_id, state[:note])
+    log_debug("mouseup", pointer_id, state[:note])
   end
 
   def on_pointercancel(event)
+    return unless event[:pointerType].to_s == "mouse"
     pointer_id = event[:pointerId].to_i
-    log_debug("pointercancel-raw", pointer_id)
+    log_debug("pointercancel-raw(mouse)", pointer_id)
     state = @pointers.delete(pointer_id)
     return unless state
-
     release_pad(state)
-    log_debug("pointercancel", pointer_id, state[:note])
+    log_debug("pointercancel(mouse)", pointer_id, state[:note])
   end
 
   def on_lostpointercapture(event)
+    return unless event[:pointerType].to_s == "mouse"
     pointer_id = event[:pointerId].to_i
-    log_debug("lostpointercapture-raw", pointer_id)
+    log_debug("lostpointercapture-raw(mouse)", pointer_id)
     state = @pointers.delete(pointer_id)
     return unless state
-
     release_pad(state)
-    log_debug("lostpointercapture", pointer_id, state[:note])
+    log_debug("lostpointercapture(mouse)", pointer_id, state[:note])
+  end
+
+  # ── Shared helpers ─────────────────────────────────────────────────────────
+
+  def each_changed_touch(event)
+    changed = event[:changedTouches]
+    changed[:length].to_i.times { |i| yield changed.call(:item, i) }
   end
 
   def release_pad(state)
@@ -207,6 +287,17 @@ class PadGrid
 
   def format_offset(n)
     n > 0 ? "+#{n}" : (n == 0 ? "±0" : n.to_s)
+  end
+
+  def calc_touch_velocity(touch, target)
+    radius = touch[:radiusX].to_f
+    if radius > 1
+      (radius * 2 / 50.0 * 127).round.clamp(1, 127)
+    else
+      rect  = target.call(:getBoundingClientRect)
+      rel_y = 1.0 - (touch[:clientY].to_f - rect[:top].to_f) / rect[:height].to_f
+      (rel_y * 100 + 27).round.clamp(1, 127)
+    end
   end
 
   def calc_velocity(event, target)
@@ -220,7 +311,7 @@ class PadGrid
     end
   end
 
-  # --- Debug overlay (enabled with ?debug=1) ---
+  # ── Debug overlay (enabled with ?debug=1) ─────────────────────────────────
 
   def setup_debug_overlay
     doc = JS.global[:document]
@@ -230,26 +321,22 @@ class PadGrid
     @debug_log = []
   end
 
-  def log_debug(event_type, pointer_id, note = nil)
+  def log_debug(event_type, id, note = nil)
     return unless @debug
 
-    entry = "#{event_type} ptr=#{pointer_id}"
+    entry = "#{event_type} id=#{id}"
     entry += " note=#{note}" if note
     @debug_log.push(entry)
     @debug_log.shift if @debug_log.size > 20
 
-    active_ptrs = @pointers.map { |id, s| "#{id}:n#{s[:note]}" }.join(" ")
+    active_ptrs = @pointers.map { |k, s| "#{k}:n#{s[:note]}" }.join(" ")
     midi_active = $midi_sender.active.to_a.sort.join(",")
     lines = [
-      "<span class='info'>Pointers(#{@pointers.size}): [#{active_ptrs}]</span>",
-      "<span class='info'>MIDI active: [#{midi_active}]</span>",
+      "<span class='info'>Active(#{@pointers.size}): [#{active_ptrs}]</span>",
+      "<span class='info'>MIDI: [#{midi_active}]</span>",
       "---",
       *@debug_log.reverse.map { |l|
-        if l.include?("cancel") || l.include?("lost")
-          "<span class='cancel'>#{l}</span>"
-        else
-          l
-        end
+        l.include?("cancel") || l.include?("lost") ? "<span class='cancel'>#{l}</span>" : l
       }
     ]
     @debug_el[:innerHTML] = lines.join("<br>")
