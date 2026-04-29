@@ -197,6 +197,33 @@ function wireControls() {
   });
 }
 
+// ── All Notes Off (panic) ─────────────────────────────────────────────────────
+function allNotesOff() {
+  if (App.vm) App.eval("$midi_sender.all_notes_off");
+}
+
+function wirePanic() {
+  // Release all notes when app is hidden or loses focus
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) allNotesOff();
+  });
+  window.addEventListener("blur", allNotesOff);
+
+  // Long-press (500ms) on the "ODD PAD" title as an emergency panic button
+  const title = document.querySelector("header h1");
+  if (!title) return;
+  let panicTimer = null;
+  title.addEventListener("pointerdown", () => {
+    panicTimer = setTimeout(() => {
+      allNotesOff();
+      title.textContent = "ALL OFF";
+      setTimeout(() => { title.textContent = "ODD PAD"; }, 600);
+    }, 500);
+  });
+  title.addEventListener("pointerup",     () => clearTimeout(panicTimer));
+  title.addEventListener("pointercancel", () => clearTimeout(panicTimer));
+}
+
 // ── Boot Sequence ─────────────────────────────────────────────────────────────
 startBtn.addEventListener("click", async () => {
   // CRITICAL: request MIDI access SYNCHRONOUSLY at the top of the click handler.
@@ -226,6 +253,7 @@ startBtn.addEventListener("click", async () => {
   document.getElementById("grid-container").appendChild(padGrid);
 
   wireControls();
+  wirePanic();
   overlay.style.display = "none";
 
   console.log("Odd Pad ready.");

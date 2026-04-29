@@ -23,6 +23,7 @@
       flex-direction: column;
       height: 100dvh;
       overflow: hidden;
+      touch-action: none;
     }
 
     /* ── Start Overlay ─────────────────────────────────── */
@@ -64,6 +65,7 @@
       flex-wrap: wrap;
       border-bottom: 1px solid #383838;
       flex-shrink: 0;
+      touch-action: none;
     }
 
     header h1 { margin: 0; font-size: 0.95rem; color: #aaa; letter-spacing: 0.08em; }
@@ -98,6 +100,7 @@
       justify-content: center;
       padding: 16px;
       min-height: 0;
+      touch-action: none;
     }
 
     pad-grid {
@@ -111,7 +114,7 @@
 <div id="start-overlay">
   <h1>Odd Pad</h1>
   <button id="start-btn" disabled>Loading Ruby VM…</button>
-  <p id="loading-msg">Fetching ruby+stdlib.wasm (~30 MB)</p>
+  <p id="loading-msg">Fetching ruby+stdlib.wasm</p>
 </div>
 
 <header>

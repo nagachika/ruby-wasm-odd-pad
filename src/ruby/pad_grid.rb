@@ -136,7 +136,7 @@ class PadGrid
 
     event.call(:preventDefault)
     pointer_id = event[:pointerId].to_i
-    target.call(:setPointerCapture, event[:pointerId])
+    @grid.call(:setPointerCapture, event[:pointerId])
 
     note     = note_val.to_i
     velocity = calc_velocity(event, target)
@@ -181,6 +181,7 @@ class PadGrid
 
   def on_pointercancel(event)
     pointer_id = event[:pointerId].to_i
+    log_debug("pointercancel-raw", pointer_id)
     state = @pointers.delete(pointer_id)
     return unless state
 
@@ -190,6 +191,7 @@ class PadGrid
 
   def on_lostpointercapture(event)
     pointer_id = event[:pointerId].to_i
+    log_debug("lostpointercapture-raw", pointer_id)
     state = @pointers.delete(pointer_id)
     return unless state
 
