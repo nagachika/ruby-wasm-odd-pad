@@ -16,10 +16,14 @@ let bridgeWs        = null;
 let bridgeConnected = false;
 let bridgeRetryTimer = null;
 
+function notifyBridgeChange() {
+  document.dispatchEvent(new CustomEvent("bridge-statechange"));
+}
+
 function connectBridge(url) {
   clearTimeout(bridgeRetryTimer);
   if (bridgeWs) { bridgeWs.onclose = null; bridgeWs.close(); bridgeWs = null; }
-  if (!url) { bridgeConnected = false; refreshBridgeOption(); return; }
+  if (!url) { bridgeConnected = false; notifyBridgeChange(); return; }
 
   console.log("[Bridge] Connecting to", url);
   try {
@@ -27,21 +31,21 @@ function connectBridge(url) {
   } catch (e) {
     console.warn("[Bridge] Invalid URL:", e.message);
     bridgeConnected = false;
-    refreshBridgeOption();
+    notifyBridgeChange();
     return;
   }
 
   bridgeWs.onopen = () => {
     console.log("[Bridge] Connected:", url);
     bridgeConnected = true;
-    refreshBridgeOption();
+    notifyBridgeChange();
   };
 
   bridgeWs.onclose = () => {
     console.log("[Bridge] Disconnected, retrying in", BRIDGE_RETRY_MS, "ms");
     bridgeWs = null;
     bridgeConnected = false;
-    refreshBridgeOption();
+    notifyBridgeChange();
     const savedHostPort = localStorage.getItem(BRIDGE_HOST_KEY) ?? "";
     if (hostPortToWss(savedHostPort) === url) {
       bridgeRetryTimer = setTimeout(() => connectBridge(url), BRIDGE_RETRY_MS);
@@ -58,9 +62,6 @@ function sendViaBridge(status, data1, data2) {
   }
   bridgeWs.send(JSON.stringify([status, data1, data2]));
 }
-
-// Updated by setupMIDI once the dropdown exists
-let refreshBridgeOption = () => {};
 
 // ── Central App Object ────────────────────────────────────────────────────────
 
@@ -160,6 +161,7 @@ async function writeRubyFiles() {
     "src/ruby/main.rb",
     "src/ruby/ctrl_group.rb",
     "src/ruby/kebab_menu.rb",
+    "src/ruby/midi_out_ctrl.rb",
   ];
 
   const bust = Date.now();
@@ -204,42 +206,17 @@ async function writeRubyFiles() {
 // ── MIDI Setup ────────────────────────────────────────────────────────────────
 
 async function setupMIDI() {
-  const selectEl = document.getElementById("midi-out-select");
-  const statusEl = document.getElementById("midi-out-status");
-
-  // Inject "Wi-Fi Bridge" as the first option and wire refreshBridgeOption
-  const bridgeOpt = document.createElement("option");
-  bridgeOpt.value = BRIDGE_OPT_VAL;
-  selectEl.appendChild(bridgeOpt);
-
-  refreshBridgeOption = () => {
-    bridgeOpt.textContent = bridgeConnected ? "Wi-Fi Bridge ✓" : "Wi-Fi Bridge (disconnected)";
-    if (selectEl.value === BRIDGE_OPT_VAL) {
-      statusEl.textContent = bridgeConnected ? "connected" : "disconnected";
-    }
-  };
-  refreshBridgeOption();
-
-  const showErr = (label, e) => {
-    const msg = e?.message || String(e);
-    statusEl.textContent = `${label}: ${msg}`;
-    console.error(`[MIDI] ${label}:`, e);
-  };
-
   if (typeof navigator.requestMIDIAccess !== "function") {
-    statusEl.textContent = window.__midiErr
-      ? `unsupported (${window.__midiErr.message})`
-      : "unsupported";
+    App.midiAccess = null;
+    App.midiAccessError = window.__midiErr;
     return;
   }
 
   let access = null;
-  let lastErr = null;
+  let lastErr = window.__midiErr;
 
   if (_midiAccessPromise) {
     try { access = await _midiAccessPromise; } catch (e) { lastErr = e; access = null; }
-  } else if (window.__midiErr) {
-    lastErr = window.__midiErr;
   }
 
   if (!access) {
@@ -247,50 +224,14 @@ async function setupMIDI() {
       console.log("[MIDI] Requesting access inside click handler (user gesture)…");
       access = await navigator.requestMIDIAccess();
     } catch (e) {
-      showErr("Access failed", e || lastErr);
+      App.midiAccess = null;
+      App.midiAccessError = e || lastErr;
+      console.error("[MIDI] Access failed:", e);
       return;
     }
   }
   console.log("[MIDI] Access granted, outputs:", access.outputs.size);
-
-  function refreshOutputs() {
-    const outputs = [...access.outputs.values()];
-    const prevId  = selectEl.value;
-
-    // Rebuild keeping bridge option at top
-    selectEl.innerHTML = '<option value="">– none –</option>';
-    selectEl.appendChild(bridgeOpt);
-    outputs.forEach(o => {
-      const opt = document.createElement("option");
-      opt.value       = o.id;
-      opt.textContent = o.name;
-      selectEl.appendChild(opt);
-    });
-
-    if (prevId && [...selectEl.options].some(o => o.value === prevId)) {
-      selectEl.value = prevId;
-    } else if (outputs.length > 0) {
-      selectEl.value = outputs[0].id;
-    }
-    updateOutput();
-  }
-
-  function updateOutput() {
-    const id = selectEl.value;
-    if (id === BRIDGE_OPT_VAL) {
-      App._useBridge  = true;
-      App.midiOutput  = null;
-      statusEl.textContent = bridgeConnected ? "connected" : "disconnected";
-    } else {
-      App._useBridge  = false;
-      App.midiOutput  = id ? access.outputs.get(id) ?? null : null;
-      statusEl.textContent = App.midiOutput ? App.midiOutput.name : "(no port)";
-    }
-  }
-
-  selectEl.addEventListener("change", updateOutput);
-  access.onstatechange = refreshOutputs;
-  refreshOutputs();
+  App.midiAccess = access;
 }
 
 // ── Boot Sequence ─────────────────────────────────────────────────────────────
@@ -304,10 +245,11 @@ startBtn.addEventListener("click", async () => {
 
   App.eval("require 'main'");
 
-  const midiOutGroup = document.getElementById("midi-out-group");
-  midiOutGroup.before(document.createElement("dim-ctrl"), document.createElement("vol-ctrl"));
-
-  document.querySelector("header").appendChild(document.createElement("kebab-menu"));
+  const headerEl = document.querySelector("header");
+  headerEl.appendChild(document.createElement("dim-ctrl"));
+  headerEl.appendChild(document.createElement("vol-ctrl"));
+  headerEl.appendChild(document.createElement("midi-out-ctrl"));
+  headerEl.appendChild(document.createElement("kebab-menu"));
 
   const padGrid = document.createElement("pad-grid");
   document.getElementById("grid-container").appendChild(padGrid);
