@@ -1,13 +1,13 @@
 require 'js'
 require 'web_component'
 
-# 5x5 viewport into the 9x9 MIDI grid (centre region: x=2..6, y=2..6).
+# 9x5 viewport into the 9x9 MIDI grid (full width, centre rows: y=2..6).
 # Note number formula: NoteNumber = 36 + (y * 9) + x
 # Centre tonic: (4,4) = MIDI note 76
 class PadGrid
   include WebComponent
 
-  VIEW_XS   = (2..6).to_a   # left-to-right columns
+  VIEW_XS   = (0..8).to_a   # left-to-right columns (full 9-column width)
   VIEW_YS   = (2..6).to_a   # bottom-to-top rows (rendered top-to-bottom in DOM)
   CENTER_X  = 4
   CENTER_Y  = 4
@@ -26,10 +26,10 @@ class PadGrid
     }
     .grid {
       display: grid;
-      grid-template-columns: repeat(5, 1fr);
+      grid-template-columns: repeat(9, 1fr);
       gap: 5px;
       width: 100%;
-      aspect-ratio: 1 / 1;
+      aspect-ratio: 9 / 5;
       touch-action: none;
     }
     .pad {
