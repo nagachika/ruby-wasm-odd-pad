@@ -9,24 +9,29 @@ class DimCtrl
     element[:className] = "ctrl-group"
 
     label = doc.call(:createElement, "label")
-    label[:htmlFor] = "ctrl-dim"
     label[:textContent] = "Dim"
 
-    select = doc.call(:createElement, "select")
-    select[:id] = "ctrl-dim"
+    btn_group = doc.call(:createElement, "span")
+    btn_group[:className] = "dim-btn-group"
+
     [3, 4, 5].each do |v|
-      opt = doc.call(:createElement, "option")
-      opt[:value] = v.to_s
-      opt[:textContent] = v.to_s
-      opt[:selected] = true if v == 3
-      select.call(:appendChild, opt)
+      btn = doc.call(:createElement, "button")
+      btn[:textContent] = v.to_s
+      btn[:className] = "dim-btn"
+      btn[:classList].call(:add, "active") if v == 3
+      btn[:dataset][:dim] = v.to_s
+      btn.call(:addEventListener, "click", proc { |e|
+        btn_group.call(:querySelectorAll, ".dim-btn").call(:forEach, proc { |b|
+          b[:classList].call(:remove, "active")
+        })
+        e[:currentTarget][:classList].call(:add, "active")
+        $midi_sender.send_cc(20, v)
+      })
+      btn_group.call(:appendChild, btn)
     end
-    select.call(:addEventListener, "change", proc { |e|
-      $midi_sender.send_cc(20, e[:target][:value].to_i)
-    })
 
     element.call(:appendChild, label)
-    element.call(:appendChild, select)
+    element.call(:appendChild, btn_group)
   end
 
   DimCtrl.register("dim-ctrl")
